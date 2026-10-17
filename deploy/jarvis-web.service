@@ -1,0 +1,13 @@
+[Unit]
+Description=Jarvis web (NanoGPT)
+After=network-online.target
+
+[Service]
+WorkingDirectory=/opt/jarvis-web
+EnvironmentFile=/opt/jarvis-web/.env
+ExecStart=/opt/jarvis-web/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8800
+Restart=always
+DynamicUser=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>J.A.R.V.I.S.</title>
+<style>
+  :root {
+    --bg: #05080d; --panel: #0b121b; --line: #13314a; --cyan: #29d3ff;
+    --cyan-dim: #1a7fa0; --text: #d7ecf5; --muted: #6b8798; --user: #0f2738;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(ellipse at top, #0a1a28 0%, var(--bg) 60%);
+    color: var(--text); font: 15px/1.55 "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px; padding: 12px 16px;
+    border-bottom: 1px solid var(--line); background: rgba(5,8,13,.7);
+  }
+  .brand { font-weight: 600; letter-spacing: .3em; color: var(--cyan); }
+  header select, header button {
+    margin-left: auto; background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; max-width: 45vw;
+  }
+  header button { margin-left: 0; cursor: pointer; }
+  #core-wrap { display: flex; justify-content: center; padding: 18px 0 6px; }
+  #core {
+    width: 110px; height: 110px; border-radius: 50%; position: relative;
+    border: 2px solid var(--cyan-dim);
+    box-shadow: 0 0 25px rgba(41,211,255,.25), inset 0 0 25px rgba(41,211,255,.2);
+  }
+  #core::before, #core::after {
+    content: ""; position: absolute; inset: 14px; border-radius: 50%;
+    border: 2px dashed var(--cyan); opacity: .7; animation: spin 12s linear infinite;
+  }
+  #core::after { inset: 36px; border-style: solid; background: rgba(41,211,255,.15); animation: pulse 3s ease-in-out infinite; }
+  #core.busy::before { animation-duration: 1.5s; }
+  #core.listening::after { background: rgba(255,80,80,.35); border-color: #ff6060; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse { 50% { transform: scale(1.15); opacity: 1; } }
+  #status { text-align: center; color: var(--muted); font-size: 12px; letter-spacing: .15em; min-height: 18px; }
+  main { flex: 1; overflow-y: auto; padding: 12px 16px; }
+  .msg { max-width: 760px; margin: 10px auto; padding: 10px 14px; border-radius: 10px; white-space: pre-wrap; word-wrap: break-word; }
+  .user { background: var(--user); border: 1px solid var(--line); margin-left: auto; max-width: min(760px, 85%); }
+  .assistant { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--cyan); }
+  .assistant code { background: #000; padding: 1px 4px; border-radius: 4px; }
+  .assistant pre { background: #000; padding: 10px; border-radius: 6px; overflow-x: auto; }
+  .error { border-left-color: #ff6060; color: #ffb0b0; }
+  form { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); max-width: 800px; width: 100%; margin: 0 auto; }
+  textarea {
+    flex: 1; resize: none; background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: inherit; min-height: 44px; max-height: 160px;
+  }
+  textarea:focus { outline: none; border-color: var(--cyan-dim); }
+  .btn {
+    background: var(--panel); border: 1px solid var(--cyan-dim); color: var(--cyan);
+    border-radius: 8px; padding: 0 14px; cursor: pointer; font-size: 18px;
+  }
+  .btn.on { background: var(--cyan); color: #000; }
+  label.speak { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">J.A.R.V.I.S.</span>
+  <select id="model" title="Model"></select>
+  <label class="speak"><input type="checkbox" id="speak" checked> voice</label>
+  <button id="clear" title="New conversation">⟲</button>
+</header>
+<div id="core-wrap"><div id="core"></div></div>
+<div id="status">ONLINE</div>
+<main id="log"></main>
+<form id="form">
+  <button type="button" class="btn" id="mic" title="Talk">🎙</button>
+  <textarea id="input" placeholder="How can I help, sir?" rows="1"></textarea>
+  <button class="btn" title="Send">➤</button>
+</form>
+
+<script>
+const $ = id => document.getElementById(id);
+const log = $("log"), input = $("input"), core = $("core"), statusEl = $("status");
+let history = [];
+let password = "";
+try { history = JSON.parse(localStorage.getItem("jarvis-history") || "[]"); password = localStorage.getItem("jarvis-pw") || ""; } catch {}
+
+function save() { try { localStorage.setItem("jarvis-history", JSON.stringify(history.slice(-60))); } catch {} }
+function setStatus(t, cls) { statusEl.textContent = t; core.className = cls || ""; }
+
+function escapeHtml(s) { return s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function render(md) {
+  let h = escapeHtml(md);
+  h = h.replace(/```(\w*)\n([\s\S]*?)```/g, (_, l, c) => `<pre><code>${c}</code></pre>`);
+  h = h.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  h = h.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  return h;
+}
+function addMsg(role, text) {
+  const d = document.createElement("div");
+  d.className = "msg " + role;
+  d.innerHTML = render(text);
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+  return d;
+}
+history.forEach(m => addMsg(m.role, m.content));
+
+function authHeaders() { return password ? {"x-app-password": password} : {}; }
+
+async function api(path, opts = {}) {
+  opts.headers = {...(opts.headers || {}), ...authHeaders()};
+  let r = await fetch(path, opts);
+  if (r.status === 401) {
+    password = prompt("Password:") || "";
+    try { localStorage.setItem("jarvis-pw", password); } catch {}
+    opts.headers = {...opts.headers, ...authHeaders()};
+    r = await fetch(path, opts);
+  }
+  return r;
+}
+
+async function loadModels() {
+  const cfg = await (await fetch("/api/config")).json();
+  const sel = $("model");
+  const saved = (() => { try { return localStorage.getItem("jarvis-model"); } catch { return null; } })();
+  try {
+    const r = await api("/api/models");
+    const { models } = await r.json();
+    for (const id of models) sel.add(new Option(id, id));
+  } catch { sel.add(new Option(cfg.default_model, cfg.default_model)); }
+  sel.value = saved && [...sel.options].some(o => o.value === saved) ? saved : cfg.default_model;
+  if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+  sel.onchange = () => { try { localStorage.setItem("jarvis-model", sel.value); } catch {} };
+}
+
+function speak(text) {
+  if (!$("speak").checked || !("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text.replace(/```[\s\S]*?```/g, " code block ").replace(/[*#`]/g, ""));
+  const v = speechSynthesis.getVoices().find(v => /en-GB/i.test(v.lang) && /male|daniel|george|ryan/i.test(v.name))
+         || speechSynthesis.getVoices().find(v => /en-GB/i.test(v.lang));
+  if (v) u.voice = v;
+  u.rate = 1.05;
+  speechSynthesis.speak(u);
+}
+
+async function send(text) {
+  text = text.trim();
+  if (!text) return;
+  addMsg("user", text);
+  history.push({role: "user", content: text});
+  save();
+  const box = addMsg("assistant", "");
+  setStatus("PROCESSING", "busy");
+  let reply = "";
+  try {
+    const r = await api("/api/chat", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({model: $("model").value, messages: history}),
+    });
+    if (!r.ok) throw new Error((await r.text()).slice(0, 300));
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      const lines = buf.split("\n");
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") continue;
+        try {
+          const j = JSON.parse(data);
+          if (j.error) throw new Error(typeof j.error === "string" ? j.error : JSON.stringify(j.error));
+          reply += j.choices?.[0]?.delta?.content || "";
+          box.innerHTML = render(reply);
+          log.scrollTop = log.scrollHeight;
+        } catch (e) { if (e.message && !(e instanceof SyntaxError)) throw e; }
+      }
+    }
+    history.push({role: "assistant", content: reply});
+    save();
+    speak(reply);
+    setStatus("ONLINE");
+  } catch (e) {
+    box.classList.add("error");
+    box.textContent = "Error: " + e.message;
+    setStatus("ERROR");
+  }
+}
+
+$("form").onsubmit = e => { e.preventDefault(); const t = input.value; input.value = ""; send(t); };
+input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("form").requestSubmit(); } });
+$("clear").onclick = () => { history = []; save(); log.innerHTML = ""; speechSynthesis?.cancel(); };
+
+// Voice input via the browser's speech recognition (Chrome, Edge, Safari).
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SR) {
+  const rec = new SR();
+  rec.interimResults = true;
+  rec.lang = navigator.language || "en-US";
+  let finalText = "";
+  rec.onresult = e => {
+    let interim = "";
+    for (const res of e.results) (res.isFinal ? (finalText = res[0].transcript) : (interim = res[0].transcript));
+    input.value = finalText || interim;
+  };
+  rec.onend = () => { $("mic").classList.remove("on"); setStatus("ONLINE"); if (finalText) { input.value = ""; send(finalText); } };
+  $("mic").onclick = () => { finalText = ""; speechSynthesis?.cancel(); $("mic").classList.add("on"); setStatus("LISTENING", "listening"); rec.start(); };
+} else {
+  $("mic").title = "Voice input isn't supported in this browser";
+  $("mic").disabled = true;
+}
+
+loadModels();
+</script>
+</body>
+</html>
