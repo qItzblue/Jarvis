@@ -1,6 +1,7 @@
 # Jarvis web
 
-A browser-based J.A.R.V.I.S. assistant backed by [NanoGPT](https://nano-gpt.com).
+A browser-based J.A.R.V.I.S. assistant backed by [NanoGPT](https://nano-gpt.com) and, optionally, Google Gemini
+(set `GEMINI_API_KEY`; Gemini models appear in the picker as `google-direct/...`).
 Streaming chat, model picker, voice input (browser speech recognition) and spoken replies.
 Your NanoGPT key stays on the server; `APP_PASSWORD` keeps others from using it.
 
