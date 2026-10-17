@@ -123,6 +123,7 @@ async function api(path, opts = {}) {
 
 async function loadModels() {
   const cfg = await (await fetch("/api/config")).json();
+  serverVoice = cfg.server_voice;
   const sel = $("model");
   const saved = (() => { try { return localStorage.getItem("jarvis-model"); } catch { return null; } })();
   try {
@@ -135,10 +136,34 @@ async function loadModels() {
   sel.onchange = () => { try { localStorage.setItem("jarvis-model", sel.value); } catch {} };
 }
 
-function speak(text) {
-  if (!$("speak").checked || !("speechSynthesis" in window)) return;
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text.replace(/```[\s\S]*?```/g, " code block ").replace(/[*#`]/g, ""));
+let serverVoice = false, audio = null;
+function stopSpeaking() {
+  if (audio) { audio.pause(); audio = null; }
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+}
+function speakable(text) { return text.replace(/```[\s\S]*?```/g, " code block ").replace(/[*#`]/g, ""); }
+
+async function speak(text) {
+  if (!$("speak").checked) return;
+  stopSpeaking();
+  if (serverVoice) {
+    try {
+      const r = await api("/api/tts", {method: "POST", headers: {"Content-Type": "application/json"},
+                                       body: JSON.stringify({text: speakable(text)})});
+      if (!r.ok) throw new Error(await r.text());
+      audio = new Audio(URL.createObjectURL(await r.blob()));
+      setStatus("SPEAKING", "busy");
+      audio.onended = () => setStatus("ONLINE");
+      await audio.play();
+      return;
+    } catch (e) { console.warn("Server voice failed, using the browser voice:", e); }
+  }
+  browserSpeak(text);
+}
+
+function browserSpeak(text) {
+  if (!("speechSynthesis" in window)) return;
+  const u = new SpeechSynthesisUtterance(speakable(text));
   const v = speechSynthesis.getVoices().find(v => /en-GB/i.test(v.lang) && /male|daniel|george|ryan/i.test(v.name))
          || speechSynthesis.getVoices().find(v => /en-GB/i.test(v.lang));
   if (v) u.voice = v;
@@ -196,7 +221,7 @@ async function send(text) {
 
 $("form").onsubmit = e => { e.preventDefault(); const t = input.value; input.value = ""; send(t); };
 input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("form").requestSubmit(); } });
-$("clear").onclick = () => { history = []; save(); log.innerHTML = ""; speechSynthesis?.cancel(); };
+$("clear").onclick = () => { history = []; save(); log.innerHTML = ""; stopSpeaking(); };
 
 // Voice input via the browser's speech recognition (Chrome, Edge, Safari).
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -211,7 +236,7 @@ if (SR) {
     input.value = finalText || interim;
   };
   rec.onend = () => { $("mic").classList.remove("on"); setStatus("ONLINE"); if (finalText) { input.value = ""; send(finalText); } };
-  $("mic").onclick = () => { finalText = ""; speechSynthesis?.cancel(); $("mic").classList.add("on"); setStatus("LISTENING", "listening"); rec.start(); };
+  $("mic").onclick = () => { finalText = ""; stopSpeaking(); $("mic").classList.add("on"); setStatus("LISTENING", "listening"); rec.start(); };
 } else {
   $("mic").title = "Voice input isn't supported in this browser";
   $("mic").disabled = true;

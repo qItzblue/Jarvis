@@ -2,7 +2,8 @@
 
 A browser-based J.A.R.V.I.S. assistant backed by [NanoGPT](https://nano-gpt.com) and, optionally, Google Gemini
 (set `GEMINI_API_KEY`; Gemini models appear in the picker as `google-direct/...`).
-Streaming chat, model picker, voice input (browser speech recognition) and spoken replies.
+Streaming chat, model picker, voice input (browser speech recognition) and natural spoken replies
+(NanoGPT text-to-speech; set `TTS_MODEL` / `TTS_VOICE`, falls back to the browser voice).
 Your NanoGPT key stays on the server; `APP_PASSWORD` keeps others from using it.
 
 ## Run locally

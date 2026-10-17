@@ -11,7 +11,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 NANOGPT_BASE = os.environ.get("NANOGPT_BASE", "https://nano-gpt.com/api/v1").rstrip("/")
 NANOGPT_KEY = os.environ.get("NANOGPT_API_KEY", "")
@@ -20,6 +20,9 @@ GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_PREFIX = "google-direct/"  # NanoGPT already has "google/..." models, so direct ones need their own prefix
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
+# Spoken replies through NanoGPT's text-to-speech. Kokoro is cheap; ElevenLabs sounds best.
+TTS_MODEL = os.environ.get("TTS_MODEL", "Kokoro-82m")
+TTS_VOICE = os.environ.get("TTS_VOICE", "bm_george")
 SYSTEM_PROMPT = os.environ.get(
     "SYSTEM_PROMPT",
     "You are J.A.R.V.I.S., a calm, witty, highly capable personal assistant. "
@@ -62,7 +65,27 @@ def index():
 
 @app.get("/api/config")
 def config():
-    return {"needs_password": bool(APP_PASSWORD), "default_model": DEFAULT_MODEL}
+    return {"needs_password": bool(APP_PASSWORD), "default_model": DEFAULT_MODEL,
+            "server_voice": bool(NANOGPT_KEY and TTS_MODEL)}
+
+
+@app.post("/api/tts")
+async def tts(request: Request):
+    _check_auth(request)
+    if not NANOGPT_KEY:
+        raise HTTPException(500, "NANOGPT_API_KEY is not set on the server")
+    text = str((await request.json()).get("text", ""))[:4000]
+    if not text.strip():
+        raise HTTPException(400, "Nothing to say")
+    async with httpx.AsyncClient(timeout=60) as client:
+        r = await client.post(
+            f"{NANOGPT_BASE}/audio/speech",
+            headers={"Authorization": f"Bearer {NANOGPT_KEY}", "x-api-key": NANOGPT_KEY},
+            json={"model": TTS_MODEL, "voice": TTS_VOICE, "input": text, "response_format": "mp3"},
+        )
+    if r.status_code != 200 or not r.headers.get("content-type", "").startswith("audio"):
+        raise HTTPException(502, r.text[:300])
+    return Response(r.content, media_type=r.headers["content-type"])
 
 
 @app.get("/api/models")
