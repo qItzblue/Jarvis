@@ -1,0 +1,4 @@
+# Optional local voice stack (wake word, speech-to-text, text-to-speech)
+faster-whisper>=1.0
+openwakeword>=0.6
+piper-tts>=1.2
