@@ -9,3 +9,4 @@ frontend/dist/
 frontend/release/
 *.onnx
 *.onnx.json
+*.tsbuildinfo
