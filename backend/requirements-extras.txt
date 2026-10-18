@@ -1,0 +1,6 @@
+# Optional extras, install only what you need
+google-api-python-client>=2.100   # Calendar + Gmail
+google-auth-oauthlib>=1.2
+mss>=9.0                           # screenshots
+pygetwindow>=0.0.9; sys_platform == "win32"   # window management on Windows
+face-recognition>=1.3              # local face recognition (needs dlib)
