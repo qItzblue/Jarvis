@@ -27,9 +27,18 @@ class SystemPlugin(Plugin):
     @tool("List the processes using the most CPU or memory.", {
         "sort": {"type": "string", "enum": ["cpu", "memory"]}, "limit": {"type": "integer"}}, required=[])
     async def top_processes(self, sort: str = "cpu", limit: int = 10):
-        procs = []
-        for p in psutil.process_iter(["pid", "name", "cpu_percent", "memory_percent"]):
-            procs.append(p.info)
+        # psutil measures CPU between calls on the same Process object, so keep them cached.
+        cache = self.__dict__.setdefault("_procs", {})
+        procs, alive = [], set()
+        for p in psutil.process_iter(["pid", "name"]):
+            proc = cache.setdefault(p.pid, p)
+            alive.add(p.pid)
+            try:
+                procs.append({**p.info, "cpu_percent": proc.cpu_percent(None), "memory_percent": proc.memory_percent()})
+            except psutil.Error:
+                pass
+        for pid in set(cache) - alive:
+            cache.pop(pid)
         key = "cpu_percent" if sort == "cpu" else "memory_percent"
         procs.sort(key=lambda x: x.get(key) or 0, reverse=True)
         return [{**p, "memory_percent": round(p.get("memory_percent") or 0, 1)} for p in procs[:int(limit)]]
